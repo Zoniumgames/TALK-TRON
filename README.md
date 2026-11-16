@@ -1,27 +1,29 @@
-# TALK-TRON by Zonium — v0.1.0 experimental beta
+# TALK-TRON by Zonium — v0.2.0 (experimental)
 
-Original MIDI-driven synthetic vocal instrument, built with JUCE 8.0.4. VST3 + standalone on Windows, macOS and Linux.
+JUCE 8.0.4 / CMake 3.22 / C++17; VST3 and Standalone for Windows, Linux and macOS.
 
-## Build using GitHub Actions
+## Changes from v0.1.0
+- Rebuilt, resizable vintage dark-metal editor with a larger amber lyric display and five physical-style voice-mode buttons.
+- CMake explicitly enables both C and C++ and generates JuceHeader.h.
+- GitHub Actions is **manual only** (`workflow_dispatch`), with no push or pull_request triggers.
+- A small built-in English word-to-phoneme dictionary, English vowel/diphthong handling for common words (including `I`), explicit syllable dictionary (`tonight` -> `to`, `night`) and manual hyphen syllable splitting.
+- Active syllable label advances per MIDI note-on. Single Syllable keeps the selected syllable. Hold Syllable toggles sustained versus short articulation.
+- Glide parameter is now connected to pitch smoothing.
+- Note voices retain their token snapshot so text edits do not invalidate notes already playing.
 
-1. Upload the entire contents of this folder to a new GitHub repository, including `.github/workflows/build.yml`.
-2. Open **Actions** → **Build TALK-TRON** → **Run workflow**.
-3. Download the artifact for your operating system. Copy the `.vst3` bundle into your system VST3 folder and rescan in your DAW.
-4. If the CI build reports an error, share the exact log. This beta has not been compiled locally in this environment.
+## Important limitations
+This is **still a proof-of-concept formant synthesizer**, NOT a production-grade English singing synthesizer. It does not use a full English pronunciation dictionary, trained singing model, phoneme aligner, or recorded voice database. Many words will sound robotic, unclear, or incorrect. Voice modes are experimental timbral variants, not realistic vocoders/talkboxes. Syllabification is limited to listed words and manual hyphens. The UI is custom JUCE drawing rather than a pixel-perfect reproduction of the concept image. A complete pronunciation/singing engine is a separate, significant engineering project.
 
-## Use
+## Build on GitHub
+Upload the repository files, then Actions > Build TALK-TRON > Run workflow. No builds occur on push. The job matrix builds Windows, Ubuntu 24.04 and macOS 15. Builds are not guaranteed to pass without testing in those environments.
 
-- Enter English lyrics into the orange LCD text editor. Each incoming MIDI note advances to the next syllable; after the last, it loops.
-- Explicitly split words with a hyphen: `I want you to-night`. This beta uses basic heuristics and **does not have a full English phonetic dictionary**.
-- `SINGLE SYLLABLE` repeats the syllable selected in the dropdown below the HOLD and SINGLE controls.
-- Hold a MIDI note to sustain the voiced part. Release to fade out.
-- Five sound modes change the synthesis excitation; all share a basic formant engine.
-- The on-screen keyboard sends notes to the same engine. The standalone app may need an audio output selected in its settings.
+## Local build
+```
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --parallel 2
+```
 
-## Important known limitations
+## Usage
+Type lyrics in the amber editor. Each MIDI note-on advances one token/syllable. To force exact boundaries, type e.g. `I want you to-night`. Use the syllable dropdown and Single Syllable to repeat a chosen syllable. Click the mode buttons to change timbre. Keyboard responds to mouse and MIDI input.
 
-This is an experimental formant synthesizer, not naturalistic text-to-speech. English phoneme conversion is approximate, and consonants and syllable timing require significant refinement. The HOLD SYLLABLE switch is present and saved but its separate behavior is not yet implemented. GLIDE is present and saved but not yet wired to pitch portamento. The UI is programmatically drawn in JUCE to approximate the approved visual concept, not a pixel-perfect image asset. The six controls are visible, but only Character, Breathe, Vibrato, Formant and Output currently influence sound. Voice-mode timbres are exploratory.
-
-## License
-
-Copyright (C) 2026 Zonium. All rights reserved until a license is explicitly chosen. JUCE is subject to its own license terms.
+Copyright (C) 2026 Zoniumgames. JUCE is fetched from its upstream repository and is subject to its own license.

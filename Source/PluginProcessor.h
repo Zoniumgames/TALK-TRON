@@ -37,7 +37,8 @@ public:
 private:
  struct Token { juce::String text; std::vector<int> phonemes; };
  struct Voice {
-  bool held=false; int note=-1, token=0; double phase=0, modPhase=0, age=0, release=0, env=0; float lp=0; std::array<float,6> band{};
+  std::shared_ptr<const std::vector<Token>> tokenSnapshot;
+  bool held=false; int note=-1, token=0; double phase=0, modPhase=0, age=0, release=0, env=0, smoothFreq=0; float lp=0; std::array<float,6> band{};
  };
  std::array<Voice,16> voices{};
  std::shared_ptr<const std::vector<Token>> tokens;

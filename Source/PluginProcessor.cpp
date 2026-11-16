@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include <cmath>
 #include <algorithm>
+#include <map>
 namespace {
  constexpr float pi=juce::MathConstants<float>::pi;
  // Approximate English vowel formants (F1,F2,F3). The consonant engine is deliberately experimental.
@@ -19,30 +20,56 @@ juce::AudioProcessorValueTreeState::ParameterLayout TalkTronProcessor::makeLayou
  return l;
 }
 std::vector<int> TalkTronProcessor::phonemize(const juce::String& word){
- // 0 ah, 1 eh, 2 ee, 3 oo, 4 oh, 5 ih, 6 ae, 7 uh, 8 uw; 9 fricative, 10 plosive, 11 nasal.
- std::vector<int> out; auto s=word.toLowerCase().toStdString();
- for(size_t i=0;i<s.size();){
-  if(i+1<s.size()) {auto pair=s.substr(i,2); if(pair=="ee"||pair=="ea"||pair=="ie"){out.push_back(2);i+=2;continue;} if(pair=="oo"||pair=="ou"){out.push_back(3);i+=2;continue;} if(pair=="sh"||pair=="th"||pair=="ch"||pair=="ph"){out.push_back(9);i+=2;continue;} if(pair=="ai"||pair=="ay"){out.push_back(1);i+=2;continue;} if(pair=="ow"||pair=="oa"){out.push_back(4);i+=2;continue;} }
-  char c=s[i++]; int p=-1;
-  switch(c){case 'a':p=6;break;case 'e':p=1;break;case 'i':case 'y':p=5;break;case 'o':p=4;break;case 'u':p=7;break;case 'w':p=8;break;case 's':case 'f':case 'h':case 'z':case 'v':case 'x':p=9;break;case 't':case 'k':case 'p':case 'd':case 'g':case 'b':case 'c':case 'q':p=10;break;case 'm':case 'n':case 'l':case 'r':case 'j':p=11;break;default:break;}
-  if(p>=0)out.push_back(p);
+ // Small English-pronunciation lexicon. Vowel IDs 0..8, consonant classes 9..11.
+ // This is an intelligibility experiment, not a complete English G2P engine.
+ const std::map<juce::String,std::vector<int>> dictionary={
+  {"i",{0,2}}, {"you",{11,8}}, {"want",{11,0,11,10}}, {"to",{10,8}},
+  {"night",{11,0,2,10}}, {"tonight",{10,7,11,0,2,10}},
+  {"love",{11,7,9}}, {"me",{11,2}}, {"my",{11,0,2}}, {"we",{11,2}},
+  {"are",{0}}, {"the",{9,7}}, {"this",{9,5,9}}, {"is",{5,9}},
+  {"on",{0,11}}, {"in",{5,11}}, {"and",{6,11,10}}, {"a",{7}},
+  {"hello",{9,1,11,4}}, {"world",{11,7,11,10}}, {"baby",{10,1,10,2}},
+  {"yeah",{11,6}}, {"oh",{4}}, {"hey",{9,1}}, {"go",{10,4}},
+  {"stay",{9,10,1}}, {"with",{11,5,9}}, {"your",{11,3}},
+  {"heart",{9,0,11,10}}, {"feel",{9,2,11}}, {"ton",{10,7,11}},
+  {"ferdi",{9,1,11,10,2}}, {"sax",{9,6,10,9}}, {"saxophone",{9,6,10,9,7,9,4,11}}
+ };
+ auto w=word.toLowerCase().trim();auto found=dictionary.find(w);if(found!=dictionary.end())return found->second;
+ std::vector<int> out;auto str=w.toStdString();
+ for(size_t i=0;i<str.size();){
+  if(i+1<str.size()){
+   auto pair=str.substr(i,2);
+   if(pair=="ee"||pair=="ea"||pair=="ie"){out.push_back(2);i+=2;continue;}
+   if(pair=="oo"||pair=="ou"||pair=="ue"){out.push_back(8);i+=2;continue;}
+   if(pair=="sh"||pair=="th"||pair=="ch"||pair=="ph"){out.push_back(9);i+=2;continue;}
+   if(pair=="ai"||pair=="ay"){out.insert(out.end(),{0,2});i+=2;continue;}
+   if(pair=="ow"||pair=="oa"){out.push_back(4);i+=2;continue;}
+  }
+  char c=str[i++];int ph=-1;
+  switch(c){case 'a':ph=6;break;case 'e':ph=1;break;case 'i':case 'y':ph=5;break;case 'o':ph=4;break;case 'u':ph=7;break;case 'w':ph=8;break;case 's':case 'f':case 'h':case 'z':case 'v':case 'x':ph=9;break;case 't':case 'k':case 'p':case 'd':case 'g':case 'b':case 'c':case 'q':ph=10;break;case 'm':case 'n':case 'l':case 'r':case 'j':ph=11;break;default:break;}
+  if(ph>=0)out.push_back(ph);
  }
- if(out.empty())out.push_back(0);
- return out;
+ if(out.empty())out.push_back(0);return out;
 }
 std::vector<TalkTronProcessor::Token> TalkTronProcessor::tokenize(const juce::String& lyrics){
- std::vector<Token> result;
- juce::StringArray words; words.addTokens(lyrics," \t\r\n,.;:!?()[]{}\"","'"); words.removeEmptyStrings();
+ std::vector<Token> result;juce::StringArray words;
+ words.addTokens(lyrics, " \t\r\n,.;:!?()[]{}\"", "'"); words.removeEmptyStrings();
+ // A small explicit syllable lexicon, plus optional manual '-' boundaries.
+ const std::map<juce::String,juce::StringArray> syllables={
+  {"tonight",{"to","night"}}, {"hello",{"hel","lo"}},
+  {"baby",{"ba","by"}}, {"ferdi",{"fer","di"}},
+  {"saxophone",{"sax","o","phone"}}, {"forever",{"for","ev","er"}},
+  {"together",{"to","geth","er"}}, {"beautiful",{"beau","ti","ful"}},
+  {"remember",{"re","mem","ber"}}, {"music",{"mu","sic"}}
+ };
  for(auto word:words){
-  auto w=word.toLowerCase();
-  // User-editable syllable boundaries: hyphens split exactly. A small heuristic handles common endings.
-  juce::StringArray parts; parts.addTokens(w,"-","");parts.removeEmptyStrings();
-  if(parts.size()==1 && w.length()>5 && w.endsWith("night")){auto prefix=w.dropLastCharacters(5);if(prefix.isNotEmpty()){parts.clear();parts.add(prefix);parts.add("night");}}
-  for(auto part:parts){if(result.size()>=128)break;result.push_back({part,phonemize(part)});}
-  if(result.size()>=128)break;
+  auto w=word.toLowerCase().trim();juce::StringArray parts;
+  if(w.containsChar('-')){parts.addTokens(w,"-","");parts.removeEmptyStrings();}
+  else {auto it=syllables.find(w);if(it!=syllables.end())parts=it->second;else parts.add(w);}
+  for(auto part:parts){if(result.size()>=256)break;result.push_back({part,phonemize(part)});}
+  if(result.size()>=256)break;
  }
- if(result.empty())result.push_back({"ah",{0}});
- return result;
+ if(result.empty())result.push_back({"ah",{0}});return result;
 }
 void TalkTronProcessor::setLyrics(const juce::String& s){juce::String safe=s.substring(0,2048);auto fresh=std::make_shared<const std::vector<Token>>(tokenize(safe));{const juce::ScopedLock lock(lyricLock);lyricText=safe;}std::atomic_store(&tokens,fresh);cursor=0;selected.store(0);activeSyllable.store(-1);}
 juce::String TalkTronProcessor::getLyrics() const{const juce::ScopedLock lock(lyricLock);return lyricText;}
@@ -51,7 +78,7 @@ void TalkTronProcessor::setSelectedSyllable(int i){auto p=std::atomic_load(&toke
 void TalkTronProcessor::prepareToPlay(double sr,int){sampleRate=sr;for(auto& v:voices)v=Voice{};cursor=0;}
 bool TalkTronProcessor::isBusesLayoutSupported(const BusesLayout& l) const{return l.getMainOutputChannelSet()==juce::AudioChannelSet::stereo()||l.getMainOutputChannelSet()==juce::AudioChannelSet::mono();}
 float TalkTronProcessor::synthSample(Voice& v,float freq,float character,float breath,float vibrato,float formant,int mode){
- auto tok=std::atomic_load(&tokens);if(tok->empty())return 0;
+ auto tok=v.tokenSnapshot;if(!tok || tok->empty())return 0;
  const auto& ph=(*tok)[(size_t)juce::jlimit(0,(int)tok->size()-1,v.token)].phonemes;
  double segment=std::max(0.075,0.34/(double)std::max<size_t>(1,ph.size()));
  int idx=juce::jlimit(0,(int)ph.size()-1,(int)(v.age/segment));int p=ph[(size_t)idx];
@@ -87,8 +114,8 @@ float TalkTronProcessor::synthSample(Voice& v,float freq,float character,float b
 void TalkTronProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBuffer& midi){
  juce::ScopedNoDenormals noDenormals;buffer.clear();keyboardState.processNextMidiBuffer(midi,0,buffer.getNumSamples(),true);
  auto param=[this](const char* id){return parameters.getRawParameterValue(id)->load();};
- float character=param("character"),breath=param("breathe"),vibrato=param("vibrato"),formant=param("formant"),gain=param("output")*param("volume");
- int mode=(int)param("mode");bool single=param("single")>.5f;
+ float character=param("character"),breath=param("breathe"),glide=param("glide"),vibrato=param("vibrato"),formant=param("formant"),gain=param("output")*param("volume");
+ int mode=(int)param("mode");bool single=param("single")>.5f;bool hold=param("hold")>.5f;
  auto tk=std::atomic_load(&tokens);
  auto it=midi.cbegin();
  for(int i=0;i<buffer.getNumSamples();++i){
@@ -97,14 +124,15 @@ void TalkTronProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::Midi
     int index=single?selected.load():cursor;
     if(!single)cursor=(cursor+1)%(int)tk->size();
     Voice* voice=nullptr;for(auto& v:voices)if(!v.held&&v.env<.005f){voice=&v;break;}
-    if(!voice)voice=&voices[0];*voice=Voice{};voice->held=true;voice->note=msg.getNoteNumber();voice->token=index;activeSyllable.store(index);
+    if(!voice)voice=&voices[0];*voice=Voice{};voice->held=true;voice->note=msg.getNoteNumber();voice->token=index;voice->tokenSnapshot=tk;voice->smoothFreq=juce::MidiMessage::getMidiNoteInHertz(msg.getNoteNumber());activeSyllable.store(index);
    }else if(msg.isNoteOff()){
     for(auto& v:voices)if(v.held&&v.note==msg.getNoteNumber())v.held=false;
    }else if(msg.isAllNotesOff()||msg.isAllSoundOff())for(auto& v:voices)v.held=false;
    ++it;
   }
   float s=0;
-  for(auto& v:voices){if(v.held||v.env>.0005f){float freq=juce::MidiMessage::getMidiNoteInHertz(v.note);s+=synthSample(v,freq,character,breath,vibrato,formant,mode);}}
+  if(!hold)for(auto& v:voices)if(v.held && v.age>0.42)v.held=false;
+  for(auto& v:voices){if(v.held||v.env>.0005f){float freq=juce::MidiMessage::getMidiNoteInHertz(v.note);float glideSeconds=.001f+glide*.7f;v.smoothFreq+=(freq-v.smoothFreq)*(1.f-std::exp(-1.f/(float)(sampleRate*glideSeconds)));s+=synthSample(v,(float)v.smoothFreq,character,breath,vibrato,formant,mode);}}
   s=std::tanh(s*gain*1.8f);
   for(int ch=0;ch<buffer.getNumChannels();++ch)buffer.setSample(ch,i,s);
  }
